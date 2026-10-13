@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API 文档 Agent 可用性审查</title>
+<meta name="description" content="在线审查 API 文档是否适合 AI agent 使用：七层 × 三模式 × 两层膜，输出可执行的修改意见。纯浏览器运行，文档不上传服务器。">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{"imports":{"js-yaml":"https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.mjs"}}
+</script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <h1>API 文档 Agent 可用性审查</h1>
+    <p class="sub">在浏览器里跑一遍你的 API 文档，看它是否经得起 AI agent 消费 —— 输出检查什么 · 不符合的后果 · 应如何修改。</p>
+    <p class="badge-row">
+      <span class="badge badge-ok">纯浏览器运行</span>
+      <span class="badge badge-ok">文档不上传服务器</span>
+      <span class="badge badge-info">默认不接模型也能出报告</span>
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>1 · 输入文档</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="paste" role="tab">粘贴内容</button>
+      <button class="tab" data-tab="file" role="tab">上传文件</button>
+      <button class="tab" data-tab="url" role="tab">抓取网址</button>
+    </div>
+
+    <div class="tabpanel is-active" id="panel-paste">
+      <textarea id="input-text" rows="10" placeholder="粘贴 OpenAPI JSON / YAML，或任意 markdown、散文文档内容……"></textarea>
+      <p class="hint">支持 OpenAPI 3.x / Swagger 2.0（JSON 或 YAML），也支持纯散文文档。</p>
+    </div>
+
+    <div class="tabpanel" id="panel-file">
+      <input type="file" id="input-file" accept=".json,.yaml,.yml,.md,.txt,.markdown">
+      <p class="hint">选择本地文件，内容只在本机解析，不会上传。</p>
+    </div>
+
+    <div class="tabpanel" id="panel-url">
+      <input type="url" id="input-url" placeholder="https://example.com/openapi.json">
+      <label class="check">
+        <input type="checkbox" id="url-proxy" checked>
+        <span>直连失败时，改用公共 CORS 代理重试</span>
+      </label>
+      <p class="hint warn-hint">多数文档站未开放跨域，直连常被浏览器拦截。使用代理时，文档内容会经过第三方服务器 —— 敏感文档请勿勾选，改用粘贴或上传。</p>
+      <p class="hint" id="url-note"></p>
+    </div>
+
+    <div class="row-actions">
+      <button class="btn btn-ghost" id="btn-sample">加载示例文档</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2 · 选择消费模式</h2>
+    <div class="modes" id="mode-group">
+      <label class="mode-card is-active">
+        <input type="radio" name="mode" value="A" checked>
+        <div>
+          <div class="mode-title">A · MCP / Function Calling</div>
+          <div class="mode-desc">把文档变成工具入参，agent 只读 schema 选 tool + 填参数。最看重结构完整性与行为约定。</div>
+        </div>
+      </label>
+      <label class="mode-card">
+        <input type="radio" name="mode" value="B">
+        <div>
+          <div class="mode-title">B · RAG 检索</div>
+          <div class="mode-desc">文档切片入库，agent 现查现用自然语言段落。最看重语义清晰度与可发现性。</div>
+        </div>
+      </label>
+      <label class="mode-card">
+        <input type="radio" name="mode" value="C">
+        <div>
+          <div class="mode-title">C · Agent 浏览器读文档</div>
+          <div class="mode-desc">agent 像人一样打开 docs 网站读页面。最看重形态可读性与页面内可复制示例。</div>
+        </div>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3 · 模型后端（可选）</h2>
+    <label class="check">
+      <input type="checkbox" id="model-enable">
+      <span>启用模型辅助语义判断（散文文档、修复文案生成时需要）</span>
+    </label>
+    <p class="hint">不启用也能跑：规则引擎是零模型的确定性检查，缺少模型时相关项会诚实标记为「未测」，而不是假装通过。</p>
+    <div class="model-fields" id="model-fields" hidden>
+      <div class="field">
+        <label for="model-base">Base URL</label>
+        <input type="text" id="model-base" placeholder="https://api.openai.com/v1" value="https://api.openai.com/v1">
+      </div>
+      <div class="field">
+        <label for="model-key">API Key</label>
+        <input type="password" id="model-key" placeholder="sk-...">
+      </div>
+      <div class="field">
+        <label for="model-name">模型名</label>
+        <input type="text" id="model-name" placeholder="gpt-4o-mini" value="gpt-4o-mini">
+      </div>
+      <div class="field">
+        <label class="check"><input type="checkbox" id="model-remember"><span>在本机记住配置（localStorage）</span></label>
+      </div>
+      <p class="hint warn-hint">Key 只存在你的浏览器里，但页面若被恶意脚本注入仍有泄露风险。建议使用额度受限的专用 Key。启用后，文档内容会发送给你填写的这个端点。</p>
+      <p class="hint">协议为 OpenAI-compatible，可换成 PowerTokens / DeepSeek / 本地 Ollama 等任意兼容端点。</p>
+    </div>
+  </section>
+
+  <div class="run-row">
+    <button class="btn btn-primary" id="btn-run">开始审查</button>
+    <span class="hint" id="run-status"></span>
+  </div>
+
+  <section class="card" id="result" hidden>
+    <h2>审查结果</h2>
+    <div id="result-body"></div>
+    <div class="row-actions">
+      <button class="btn btn-ghost" id="btn-download-md">下载 Markdown</button>
+      <button class="btn btn-ghost" id="btn-download-html">下载 HTML 报告</button>
+      <button class="btn btn-ghost" id="btn-download-json">下载 JSON</button>
+    </div>
+  </section>
+
+  <section class="card note-card">
+    <h2>关于覆盖范围</h2>
+    <p>网页版跑的是<strong>静态膜</strong>：只看文档本身。动态膜（拿测试凭据实测真实 API）在浏览器里会被跨域策略挡住，因此在网页版不可用 —— 需要实测的项会在报告的「覆盖声明」里明确标为未测，不会冒充已通过。</p>
+    <p class="hint">需要完整两层膜，请用命令行版本或 WorkBuddy Skill：<a href="https://github.com/tjj1234/api-doc-reviewer" target="_blank" rel="noopener">tjj1234/api-doc-reviewer</a></p>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>核心引擎来自 <a href="https://github.com/tjj1234/api-doc-reviewer" target="_blank" rel="noopener">api-doc-reviewer</a> · MIT 许可 · 七层 × 三模式 × 两层膜</p>
+  </div>
+</footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

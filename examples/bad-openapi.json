@@ -1,0 +1,109 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "示例商城 API（故意有缺陷）", "version": "1.0.0" },
+  "paths": {
+    "/orders": {
+      "post": {
+        "summary": "创建订单",
+        "description": "下单买东西。",
+        "parameters": [
+          { "name": "region", "in": "query" }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "type": "object" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "列出订单",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": { "order_id": { "type": "string" }, "state": { "type": "string" } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{id}": {
+      "delete": {
+        "summary": "删除订单",
+        "description": "删掉一个订单。",
+        "parameters": [
+          { "name": "id", "in": "path" }
+        ],
+        "responses": {
+          "200": { "description": "deleted" }
+        }
+      }
+    },
+    "/videos": {
+      "post": {
+        "summary": "提交视频生成任务",
+        "description": "异步生成视频，提交后需等待。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "prompt": { "type": "string" },
+                  "image_url": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已接受",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": { "type": "string" },
+                    "status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
