@@ -82,6 +82,60 @@ function setStatus(msg) {
   $('#run-status').textContent = msg || '';
 }
 
+// ---------- 抓取过程的可视化 ----------
+// 抓取失败时最忌讳只甩一句「失败了」——把每一步（直连 / 各代理）的结果都摊开，
+// 用户才知道到底是网址错、跨域拦、还是代理挂了。
+function shortenUrl(u, max = 58) {
+  const s = String(u || '');
+  if (s.length <= max) return s;
+  try {
+    const o = new URL(s);
+    const head = o.origin;
+    const rest = s.slice(head.length);
+    return `${head}…${rest.slice(-(max - head.length - 1))}`;
+  } catch {
+    return `${s.slice(0, max - 1)}…`;
+  }
+}
+
+function renderFetchLog(attempts) {
+  const box = $('#url-log');
+  if (!attempts || !attempts.length) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = attempts.map((a) => {
+    const icon = { ok: '✓', running: '⋯', fail: '✕', skip: '–' }[a.state] || '·';
+    return `<div class="log-row log-${esc(a.state)}">
+      <span class="log-icon">${icon}</span>
+      <span class="log-label">${esc(a.label)}</span>
+      <span class="log-target" title="${esc(a.target)}">${esc(shortenUrl(a.target))}</span>
+      <span class="log-note">${esc(a.note)}</span>
+    </div>`;
+  }).join('');
+}
+
+function showFetchFallback(message) {
+  const box = $('#url-fallback');
+  box.hidden = false;
+  box.innerHTML = `<p class="callout-title">抓取失败</p>`
+    + `<p>${esc(message)}</p>`
+    + `<p class="callout-actions">`
+    + `<button class="btn" id="btn-goto-paste">改用粘贴内容</button>`
+    + `<button class="btn" id="btn-goto-file">改用上传文件</button>`
+    + `</p>`;
+  $('#btn-goto-paste')?.addEventListener('click', () => { switchTab('paste'); $('#input-text').focus(); });
+  $('#btn-goto-file')?.addEventListener('click', () => { switchTab('file'); $('#input-file').focus(); });
+}
+
+function clearFetchFallback() {
+  const box = $('#url-fallback');
+  box.hidden = true;
+  box.innerHTML = '';
+}
+
 // ---------- 读取当前输入 ----------
 async function collectInput() {
   const activeTab = document.querySelector('.tab.is-active').dataset.tab;
@@ -102,10 +156,26 @@ async function collectInput() {
   // url
   const url = $('#input-url').value.trim();
   if (!url) throw new Error('请先填写文档网址。');
-  setStatus('正在抓取…');
-  const { text, via } = await fetchUrl(url, { allowProxy: $('#url-proxy').checked });
-  $('#url-note').textContent = `抓取成功（${via}），共 ${text.length} 字符。`;
-  return { content: text, filename: url };
+  clearFetchFallback();
+  renderFetchLog([]);
+  setStatus('正在抓取…（直连失败会自动回退到代理，稍等）');
+  try {
+    const res = await fetchUrl(url, {
+      allowProxy: $('#url-proxy').checked,
+      customProxy: $('#url-custom-proxy').value.trim(),
+      onProgress: renderFetchLog,
+    });
+    renderFetchLog(res.attempts);
+    const kindNote = res.kind === 'html'
+      ? ' ⚠️ 抓到的是网页 HTML，可能不是 spec 本体；若文档由 JS 动态渲染，请改用粘贴/上传。'
+      : '';
+    $('#url-note').textContent = `抓取成功（${res.via}），共 ${res.text.length} 字符，内容判定：${res.kind === 'spec' ? 'OpenAPI 规格' : res.kind === 'html' ? '网页 HTML' : '文本'}。${kindNote}`;
+    return { content: res.text, filename: res.url };
+  } catch (e) {
+    if (e.attempts) renderFetchLog(e.attempts);
+    showFetchFallback(e.message);
+    throw e;
+  }
 }
 
 function collectModel() {
@@ -124,7 +194,9 @@ function collectModel() {
 // ---------- 运行审查 ----------
 $('#btn-run').addEventListener('click', async () => {
   const btn = $('#btn-run');
+  const label = btn.textContent;
   btn.disabled = true;
+  btn.textContent = '处理中…';
   try {
     setStatus('正在加载文档…');
     const { content, filename } = await collectInput();
@@ -143,6 +215,7 @@ $('#btn-run').addEventListener('click', async () => {
     setStatus(`失败：${e.message}`);
   } finally {
     btn.disabled = false;
+    btn.textContent = label;
   }
 });
 

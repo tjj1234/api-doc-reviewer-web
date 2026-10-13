@@ -184,5 +184,52 @@ input[type="file"] { font-size: 14px; }
 
 .empty { color: var(--text-hint); font-size: 14px; padding: 12px 0; }
 
+/* ---------- 抓取通道日志 ---------- */
+.advanced { margin-top: 14px; border: 1px solid var(--border-soft); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
+.advanced summary { cursor: pointer; font-size: 13px; color: var(--text-soft); }
+.advanced input { margin-top: 10px; }
+.advanced code {
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+  background: var(--surface); border: 1px solid var(--border-soft); border-radius: 4px; padding: 0 4px;
+}
+
+.fetch-log {
+  margin-top: 12px; border: 1px solid var(--border-soft); border-radius: 8px;
+  background: var(--bg); overflow: hidden;
+}
+.log-row {
+  display: grid; grid-template-columns: 18px 108px 1fr auto; gap: 8px;
+  align-items: center; padding: 6px 10px; font-size: 12.5px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.log-row:last-child { border-bottom: none; }
+.log-icon { text-align: center; font-weight: 700; }
+.log-label { color: var(--text-soft); white-space: nowrap; }
+.log-target {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--text-hint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.log-note { color: var(--text-hint); white-space: nowrap; }
+.log-ok .log-icon { color: var(--pass); }
+.log-ok .log-note { color: var(--pass); }
+.log-fail .log-icon { color: var(--fail); }
+.log-running .log-icon { color: var(--accent); }
+.log-skip .log-icon, .log-skip .log-note { color: var(--na); }
+@media (max-width: 640px) {
+  .log-row { grid-template-columns: 18px 1fr; }
+  .log-target, .log-note { grid-column: 2; }
+}
+
+.callout {
+  margin-top: 12px; border-radius: 8px; padding: 12px 14px; font-size: 13.5px;
+  border: 1px solid var(--border);
+}
+.callout p { margin: 0 0 6px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout-title { font-weight: 600; }
+.callout-warn { background: #fff8e6; border-color: #e8d7a8; color: #6b4e00; }
+.callout-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.callout-actions .btn { background: var(--surface); }
+
 .site-footer { margin: 30px 0 40px; color: var(--text-hint); font-size: 13px; }
 .site-footer p { margin: 0; }

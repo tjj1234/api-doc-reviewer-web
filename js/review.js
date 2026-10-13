@@ -50,40 +50,209 @@ export async function runReview({ content, filename = '', mode = 'A', model = nu
   return { report, loaded };
 }
 
-// 抓取网址：先直连，被跨域拦截时可选回退到公共 CORS 代理
-const PROXIES = [
-  (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-  (u) => `https://r.jina.ai/${u}`,
+// ============================================================================
+// 网址抓取
+// ----------------------------------------------------------------------------
+// 现实约束（先说清楚，免得误判成 bug）：
+//  * GitHub Pages 是纯静态站，没有后端可以代抓；
+//  * 目标站点未开放 CORS 时，浏览器会把整个响应拦掉，JS 连状态码都拿不到
+//    —— 这是浏览器安全模型，不是代码写错；
+//  * 公共 CORS 代理是 best-effort：可能限流、要求 key、或直接停服。
+// 所以策略是「尽量提高直连命中率 + 失败可解释 + 一键降级」：
+//   1) 网址规范化：GitHub blob / gist / GitLab blob → raw（这些 raw 域反而开 CORS）；
+//   2) 直连优先：大量 OpenAPI 端点、GitHub raw、jsDelivr 都带 CORS 头；
+//   3) 网址不像文件时，探测常见 spec 路径（/openapi.json、/v3/api-docs…）；
+//   4) 代理仅作回退，且每一步的结果都回传 UI —— 让你看得见哪一步挂了、为什么。
+// ============================================================================
+
+const STEP_TIMEOUT = 7000;   // 单步超时（ms）
+const TOTAL_BUDGET = 21000;  // 整个抓取的总预算，避免无限等待
+const MAX_DIRECT = 3;        // 直连最多试几个候选地址
+
+const SPEC_PATHS = [
+  '/openapi.json', '/openapi.yaml', '/swagger.json',
+  '/v3/api-docs', '/openapi.yml', '/.well-known/openapi.json',
 ];
 
-export async function fetchUrl(url, { allowProxy = true } = {}) {
-  let lastErr = null;
+// 公共代理（best-effort，不保证可用）。tpl 中 {url} = 已编码，{rawurl} = 原样。
+const PUBLIC_PROXIES = [
+  { name: 'allorigins', tpl: 'https://api.allorigins.win/raw?url={url}' },
+  { name: 'r.jina.ai', tpl: 'https://r.jina.ai/{rawurl}' },
+  { name: 'codetabs', tpl: 'https://api.codetabs.com/v1/proxy/?quest={url}' },
+];
 
+function timeoutSignal(ms) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
+// 网址规范化：补协议 + GitHub/GitLab 网页地址 → 原始文件（raw 域开 CORS）
+export function normalizeUrl(raw) {
+  let u = String(raw || '').trim();
+  if (!u) return '';
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) u = `https://${u}`;
+
+  let m;
+  if ((m = u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/i))) {
+    return `https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}`;
+  }
+  if ((m = u.match(/^https?:\/\/gist\.github\.com\/([^/]+)\/([0-9a-f]+)\/?$/i))) {
+    return `https://gist.githubusercontent.com/${m[1]}/${m[2]}/raw`;
+  }
+  if ((m = u.match(/^https?:\/\/gitlab\.com\/(.+?)\/-\/blob\/(.+)$/i))) {
+    return `https://gitlab.com/${m[1]}/-/raw/${m[2]}`;
+  }
+  return u;
+}
+
+// 判断抓回来的内容更像什么，用于给用户提示
+export function sniffKind(text) {
+  const head = String(text || '').slice(0, 3000);
+  if (/<html|<!doctype\s+html|<head[\s>]|<body[\s>]/i.test(head)) return 'html';
+  if (/"?(openapi|swagger)"?\s*[:=]/i.test(head) || /^\s*openapi\s*:/im.test(head)) return 'spec';
+  return 'text';
+}
+
+// 生成候选地址：原网址 + 常见 spec 路径（仅当原网址不像文件时）
+export function buildCandidates(url) {
+  const out = [url];
+  let u;
+  try { u = new URL(url); } catch { return out; }
+  if (/\.(json|ya?ml)$/i.test(u.pathname)) return out;              // 已经像文件，不猜测
+  if (/\/(api-docs|openapi|swagger)\b/i.test(u.pathname)) return out; // 已是目录式 spec 端点
+  for (const p of SPEC_PATHS) out.push(u.origin + p);
+  return out.slice(0, MAX_DIRECT);
+}
+
+async function tryFetch(url, timeout) {
+  const t0 = Date.now();
   try {
-    const resp = await fetch(url, { mode: 'cors' });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const resp = await fetch(url, { mode: 'cors', redirect: 'follow', signal: timeoutSignal(timeout) });
+    const took = Date.now() - t0;
+    if (!resp.ok) return { ok: false, reason: 'http', note: `HTTP ${resp.status}`, took };
     const text = await resp.text();
-    return { text, via: 'direct' };
+    return { ok: true, text, took, status: resp.status };
   } catch (e) {
-    lastErr = e;
+    const took = Date.now() - t0;
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      return { ok: false, reason: 'timeout', note: `超时（${Math.round(timeout / 1000)}s 无响应）`, took };
+    }
+    // 浏览器出于安全不会区分 CORS / DNS / 断网，只能合并叙述
+    return { ok: false, reason: 'blocked', note: '被浏览器拦截（目标多半未开放跨域），或网络不可达', took };
+  }
+}
+
+function buildProxyUrl(proxy, target) {
+  return proxy.tpl
+    .replace('{rawurl}', target)
+    .replace('{url}', encodeURIComponent(target));
+}
+
+export class FetchError extends Error {
+  constructor(message, attempts = []) {
+    super(message);
+    this.name = 'FetchError';
+    this.attempts = attempts;
+  }
+}
+
+// 抓取网址。onProgress(attempts) 每步回调一次，供 UI 实时渲染。
+// 成功返回 { text, via, url, kind, attempts }；失败抛 FetchError（带 attempts）。
+export async function fetchUrl(rawUrl, { allowProxy = true, customProxy = '', onProgress } = {}) {
+  const url = normalizeUrl(rawUrl);
+  if (!url) throw new Error('请先填写文档网址。');
+
+  let parsed;
+  try { parsed = new URL(url); } catch { throw new Error(`网址格式不对：${rawUrl}`); }
+
+  const mixedContent = typeof location !== 'undefined'
+    && location.protocol === 'https:' && parsed.protocol === 'http:';
+
+  const candidates = buildCandidates(url);
+  const attempts = [];
+  const startedAt = Date.now();
+  const left = () => TOTAL_BUDGET - (Date.now() - startedAt);
+  const snapshot = () => attempts.map((a) => ({ ...a }));
+
+  const step = async (phase, label, target) => {
+    const entry = { phase, label, target, state: 'running', note: '进行中…' };
+    attempts.push(entry);
+    onProgress?.(snapshot());
+
+    const budget = left();
+    if (budget < 1500) {
+      entry.state = 'skip';
+      entry.note = '总时间预算已用尽，跳过';
+      onProgress?.(snapshot());
+      return { ok: false, reason: 'budget' };
+    }
+
+    const r = await tryFetch(target, Math.min(STEP_TIMEOUT, budget));
+    entry.state = r.ok ? 'ok' : 'fail';
+    entry.note = r.ok ? `成功（${r.took}ms）` : r.note;
+    entry.took = r.took;
+    onProgress?.(snapshot());
+    return r;
+  };
+
+  const done = (text, via, finalUrl) => ({
+    text, via, url: finalUrl, kind: sniffKind(text), attempts: snapshot(),
+  });
+
+  // 1) 直连（含 spec 路径探测）
+  for (const cand of candidates) {
+    const r = await step('direct', '直连', cand);
+    if (r.ok) return done(r.text, '直连', cand);
   }
 
-  if (!allowProxy) {
-    throw new Error('直连失败（多半是目标站点未开放跨域）。可勾选公共代理重试，或改用粘贴 / 上传。');
-  }
+  // 2) 代理回退（best-effort）
+  if (allowProxy) {
+    const proxies = [];
+    if (customProxy && /\{url\}|\{rawurl\}/.test(customProxy)) {
+      proxies.push({ name: '自定义代理', tpl: customProxy.trim() });
+    }
+    proxies.push(...PUBLIC_PROXIES);
 
-  for (let i = 0; i < PROXIES.length; i++) {
-    try {
-      const resp = await fetch(PROXIES[i](url));
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const text = await resp.text();
-      return { text, via: i === 0 ? '代理 · allorigins' : '代理 · r.jina.ai' };
-    } catch (e) {
-      lastErr = e;
+    // 代理阶段最多打 2 个候选地址，避免请求数爆炸
+    const targets = candidates.slice(0, 2);
+    for (const p of proxies) {
+      for (const cand of targets) {
+        if (left() < 1500) break;
+        const r = await step('proxy', `代理 · ${p.name}`, buildProxyUrl(p, cand));
+        if (r.ok) return done(r.text, `代理 · ${p.name}`, cand);
+      }
     }
   }
 
-  throw new Error(`直连与代理均失败：${lastErr?.message || '未知错误'}。建议把内容复制后粘贴，或改为上传文件。`);
+  throw new FetchError(diagnose(attempts, { allowProxy, mixedContent }), snapshot());
+}
+
+function diagnose(attempts, { allowProxy, mixedContent }) {
+  const ran = attempts.filter((a) => a.state === 'fail');
+  if (mixedContent) {
+    return '目标网址是 http://，而本页是 https —— 浏览器会以「混合内容」为由直接拦截。请改用 https 地址，或把内容粘贴/上传。';
+  }
+  if (!ran.length) return '抓取未完成（时间预算耗尽）。建议改用「粘贴内容」或「上传文件」。';
+
+  const allHttp = ran.every((a) => /^HTTP /.test(a.note));
+  if (allHttp) return '所有通道都返回 HTTP 错误码 —— 大概率是文件路径不对（如 404），先确认网址是否指向真实文件。';
+
+  const allBlocked = ran.every((a) => /被浏览器拦截/.test(a.note));
+  if (allBlocked && !allowProxy) {
+    return '直连被跨域拦截（目标站点未开放 CORS）。勾选「改用公共 CORS 代理重试」，或改用「粘贴内容」/「上传文件」。';
+  }
+  if (allBlocked) {
+    return '直连被跨域拦截，且公共代理当前都不可用（详见下方逐条记录）。建议改用「粘贴内容」或「上传文件」；命令行版本没有跨域限制，也可以用。';
+  }
+
+  const anyTimeout = ran.some((a) => /超时/.test(a.note));
+  if (anyTimeout) return '部分通道超时 —— 目标站点或公共代理响应太慢。可重试，或改用「粘贴内容」/「上传文件」。';
+
+  return '多个通道都失败了（详见下方逐条记录）。可改用「粘贴内容」或「上传文件」。';
 }
 
 export { toMarkdown, toHtml };

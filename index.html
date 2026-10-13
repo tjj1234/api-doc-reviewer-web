@@ -44,11 +44,21 @@
 
     <div class="tabpanel" id="panel-url">
       <input type="url" id="input-url" placeholder="https://example.com/openapi.json">
+      <p class="hint">支持 OpenAPI JSON/YAML 文件地址、GitHub 文件页（会自动转成 raw）、以及文档站首页（会自动探测 /openapi.json 等常见路径）。</p>
       <label class="check">
         <input type="checkbox" id="url-proxy" checked>
         <span>直连失败时，改用公共 CORS 代理重试</span>
       </label>
-      <p class="hint warn-hint">多数文档站未开放跨域，直连常被浏览器拦截。使用代理时，文档内容会经过第三方服务器 —— 敏感文档请勿勾选，改用粘贴或上传。</p>
+      <p class="hint warn-hint">公共代理是尽力而为：可能限流、失效，也可能不返回。目标站点未开放跨域时，直连会被浏览器整个拦掉（这是浏览器安全模型，不是本页故障）。使用代理时文档内容会经过第三方服务器 —— 敏感文档请勿勾选，改用粘贴或上传。</p>
+
+      <details class="advanced">
+        <summary>高级 · 自定义 CORS 代理（最可靠）</summary>
+        <input type="text" id="url-custom-proxy" placeholder="https://your-worker.workers.dev/?url={url}">
+        <p class="hint"><code>{url}</code> = 已编码的目标地址，<code>{rawurl}</code> = 原样地址。填写后会被<strong>最先尝试</strong>。自建一个 Cloudflare Worker 代理只需几行代码，比任何公共代理都稳。</p>
+      </details>
+
+      <div class="fetch-log" id="url-log" hidden></div>
+      <div class="callout callout-warn" id="url-fallback" hidden></div>
       <p class="hint" id="url-note"></p>
     </div>
 
