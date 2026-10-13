@@ -65,8 +65,8 @@ export async function runReview({ content, filename = '', mode = 'A', model = nu
 //   4) 代理仅作回退，且每一步的结果都回传 UI —— 让你看得见哪一步挂了、为什么。
 // ============================================================================
 
-const STEP_TIMEOUT = 7000;   // 单步超时（ms）
-const TOTAL_BUDGET = 21000;  // 整个抓取的总预算，避免无限等待
+const STEP_TIMEOUT = 10000;  // 单步超时（ms）—— 7s 对国际站点太紧（petstore 实测 4.6s），放宽到 10s
+const TOTAL_BUDGET = 30000;  // 整个抓取的总预算，避免无限等待
 const MAX_DIRECT = 5;        // 直连最多试几个候选地址（原 URL + spec 路径猜测）
 
 // 常见 OpenAPI spec 路径。顺序即优先级：
@@ -91,6 +91,22 @@ function timeoutSignal(ms) {
   const c = new AbortController();
   setTimeout(() => c.abort(), ms);
   return c.signal;
+}
+
+// 硬超时包裹：不依赖 AbortSignal 的 abort→reject 链路。
+// 2026-10-13 实测（无头 Chrome 155）：AbortSignal.timeout 偶发不生效，fetch promise
+// 永不 settle，页面永远停在「正在抓取…」。Promise.race + 独立 timer 保证 step 一定按时返回。
+// 底层 fetch 即使仍在后台跑也无害（只是个 GET，结果被丢弃）。
+function withTimeout(promise, ms) {
+  let timer;
+  const timeoutP = new Promise((_, rej) => {
+    timer = setTimeout(() => {
+      const e = new Error(`step-timeout: ${ms}ms`);
+      e.name = 'TimeoutError';
+      rej(e);
+    }, ms);
+  });
+  return Promise.race([promise, timeoutP]).finally(() => clearTimeout(timer));
 }
 
 // 网址规范化：补协议 + GitHub/GitLab 网页地址 → 原始文件（raw 域开 CORS）
@@ -140,11 +156,15 @@ export function buildCandidates(url) {
 async function tryFetch(url, timeout) {
   const t0 = Date.now();
   try {
-    const resp = await fetch(url, { mode: 'cors', redirect: 'follow', signal: timeoutSignal(timeout) });
+    const resp = await withTimeout(
+      fetch(url, { mode: 'cors', redirect: 'follow', signal: timeoutSignal(timeout) }),
+      timeout,
+    );
     const took = Date.now() - t0;
     if (!resp.ok) return { ok: false, reason: 'http', note: `HTTP ${resp.status}`, took };
-    const text = await resp.text();
-    return { ok: true, text, took, status: resp.status };
+    // resp.text() 同样可能挂起（响应体不回流），一并加硬超时
+    const text = await withTimeout(resp.text(), timeout);
+    return { ok: true, text, took: Date.now() - t0, status: resp.status };
   } catch (e) {
     const took = Date.now() - t0;
     if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {

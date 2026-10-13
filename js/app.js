@@ -159,6 +159,12 @@ async function collectInput() {
   clearFetchFallback();
   renderFetchLog([]);
   setStatus('正在抓取…（直连失败会自动回退到代理，稍等）');
+  // 抓取计时器：让任何卡顿都可见（曾出现 fetch promise 偶发不 settle，页面干等）
+  const fetchT0 = Date.now();
+  const fetchTicker = setInterval(() => {
+    const s = Math.round((Date.now() - fetchT0) / 1000);
+    setStatus(`正在抓取…已等待 ${s}s（单步上限 7s，总预算 21s，超时自动失败）`);
+  }, 1000);
   try {
     const res = await fetchUrl(url, {
       allowProxy: $('#url-proxy').checked,
@@ -175,6 +181,8 @@ async function collectInput() {
     if (e.attempts) renderFetchLog(e.attempts);
     showFetchFallback(e.message);
     throw e;
+  } finally {
+    clearInterval(fetchTicker);
   }
 }
 
