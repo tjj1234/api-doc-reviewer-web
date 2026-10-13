@@ -127,6 +127,12 @@ export function buildCandidates(url) {
   try { u = new URL(url); } catch { return out; }
   if (/\.(json|ya?ml)$/i.test(u.pathname)) return out;              // 已经像文件，不猜测
   if (/\/(api-docs|openapi|swagger)\b/i.test(u.pathname)) return out; // 已是目录式 spec 端点
+  // Mintlify 布局：文档页 /en/xxx ↔ 对应 spec /api-reference/en/xxx.json。
+  // 2026-10-13 docs.powertokens.ai 实测：文档页 HTML 无 CORS（浏览器必拦），
+  // 但 /api-reference/**.json 全部带 ACAO:* 可直连。路径转换放在最前——
+  // 否则输入 /en/zmodelChat/claude 会命中主 spec（chat completions），拿到错的文档。
+  const trimmed = u.pathname.replace(/\/+$/, '');
+  if (trimmed) out.push(u.origin + '/api-reference' + trimmed + '.json');
   for (const p of SPEC_PATHS) out.push(u.origin + p);
   return out.slice(0, MAX_DIRECT);
 }
