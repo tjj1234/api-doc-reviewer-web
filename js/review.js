@@ -67,11 +67,14 @@ export async function runReview({ content, filename = '', mode = 'A', model = nu
 
 const STEP_TIMEOUT = 7000;   // 单步超时（ms）
 const TOTAL_BUDGET = 21000;  // 整个抓取的总预算，避免无限等待
-const MAX_DIRECT = 3;        // 直连最多试几个候选地址
+const MAX_DIRECT = 5;        // 直连最多试几个候选地址（原 URL + spec 路径猜测）
 
+// 常见 OpenAPI spec 路径。顺序即优先级：
+// - /api-reference/openapi.json 是 Mintlify 文档站的标准 spec 位置，且实测返回 ACAO:*（浏览器可直连），
+//   2026-10-13 在 docs.powertokens.ai 验证：200 / application/json / access-control-allow-origin: *
 const SPEC_PATHS = [
-  '/openapi.json', '/openapi.yaml', '/swagger.json',
-  '/v3/api-docs', '/openapi.yml', '/.well-known/openapi.json',
+  '/openapi.json', '/api-reference/openapi.json', '/swagger.json',
+  '/openapi.yaml', '/v3/api-docs', '/openapi.yml', '/.well-known/openapi.json',
 ];
 
 // 公共代理（best-effort，不保证可用）。tpl 中 {url} = 已编码，{rawurl} = 原样。
