@@ -163,7 +163,7 @@ async function collectInput() {
   const fetchT0 = Date.now();
   const fetchTicker = setInterval(() => {
     const s = Math.round((Date.now() - fetchT0) / 1000);
-    setStatus(`正在抓取…已等待 ${s}s（单步上限 7s，总预算 21s，超时自动失败）`);
+    setStatus(`正在抓取…已等待 ${s}s（单步上限 10s，总预算 30s，超时自动失败）`);
   }, 1000);
   try {
     const res = await fetchUrl(url, {
@@ -212,12 +212,20 @@ $('#btn-run').addEventListener('click', async () => {
     const model = collectModel();
 
     setStatus('正在审查…');
-    const { report, loaded } = await runReview({ content, filename, mode, model });
-    current = { report, loaded, mode };
+    const { report, loaded, augment } = await runReview({
+      content, filename, mode, model,
+      onAugment: (p) => setStatus(
+        `模型补判中… ${p.done}/${p.total}（${p.ruleId}${p.ok ? '' : ' · 失败，保持未测'}）`,
+      ),
+    });
+    current = { report, loaded, mode, augment };
     currentFilter = 'all';
     renderResult(current);
     $('#result').hidden = false;
-    setStatus(`完成 · ${loaded.meta.title}（${loaded.kind === 'openapi' ? 'OpenAPI' : '散文'}）`);
+    const augNote = augment.augmented.length
+      ? ` · 模型补判 ${augment.augmented.length} 项${augment.failed.length ? `（${augment.failed.length} 项失败，保持未测）` : ''}`
+      : '';
+    setStatus(`完成 · ${loaded.meta.title}（${loaded.kind === 'openapi' ? 'OpenAPI' : '散文'}）${augNote}`);
     $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     setStatus(`失败：${e.message}`);
@@ -228,7 +236,7 @@ $('#btn-run').addEventListener('click', async () => {
 });
 
 // ---------- 渲染结果 ----------
-function renderResult({ report, loaded, mode }) {
+function renderResult({ report, loaded, mode, augment }) {
   const s = report.summary;
   const cov = report.coverage;
 
@@ -248,11 +256,17 @@ function renderResult({ report, loaded, mode }) {
     .map(([reason, arr]) => `<li>${esc(reason)} —— ${arr.length} 项</li>`)
     .join('');
 
+  // 补判说明：静态规则判不了的语义项由模型补上时，明确告诉用户结论的来源
+  const augItems = (augment?.augmented || []).length
+    ? `<p>✅ 其中 <strong>${augment.augmented.length}</strong> 项由模型补判定论（finding 上有「模型补判」徽标）：${augment.augmented.join('、')}${augment.failed.length ? `；${augment.failed.length} 项补判失败，保持未测` : ''}。</p>`
+    : '';
+
   const coverage = `
     <div class="coverage">
       <h3>覆盖声明（先看这里）</h3>
       <p><strong>未测 ≠ 通过，不适用 ≠ 失败。</strong>本次共 ${cov.total} 条检查，其中未测 ${cov.notTestedCount} 条、不适用 ${cov.notApplicableCount} 条。</p>
       <p>模式 ${esc(mode)} · 动态膜未启用（网页版受浏览器跨域限制，无法实测真实 API）。</p>
+      ${augItems}
       ${reasonItems ? `<ul>${reasonItems}</ul>` : ''}
     </div>`;
 
@@ -337,6 +351,7 @@ function findingCard(f) {
       <span class="finding-title">${esc(f.title)}</span>
       <span class="rule-id">${esc(f.rule_id)}</span>
       <span class="pill pill-status pill-${esc(f.status)}">${esc(statusText)}</span>
+      ${f.source === 'model' ? '<span class="pill pill-model" title="规则引擎只能做结构化检查，判不了这项；结论由你配置的模型基于文档内容补出">模型补判</span>' : ''}
       <span class="pill">严重度 · ${esc(sev)}</span>
       <span class="pill">${esc(app)}</span>
     </div>

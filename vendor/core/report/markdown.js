@@ -61,6 +61,8 @@ export function toMarkdown(report) {
       lines.push(`#### [${L(f.status)}] ${f.title} \`${f.rule_id}\``);
       lines.push('');
       lines.push(`- **适用性**：${APPLICABILITY_LABEL[f.applicability] || f.applicability} ｜ **严重度**：${SEVERITY_LABEL[f.severity] || f.severity} ｜ **膜**：${f.membrane === 'dynamic' ? '动态' : '静态'}`);
+      if (f.source === 'model') lines.push(`- **来源**：模型补判（规则引擎无法静态判定，由模型基于文档内容补出）`);
+      if (f.source === 'manual') lines.push(`- **来源**：人工复核（规则引擎无法静态判定，由 agent 复核文档原文定论）`);
       lines.push(`- **检查什么**：${f.check}`);
       lines.push(`- **不符合的后果（agent 怎么踩）**：${f.consequence}`);
       if (f.evidence) lines.push(`- **证据**：${f.evidence}`);

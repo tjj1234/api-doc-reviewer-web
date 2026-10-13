@@ -157,6 +157,7 @@ input[type="file"] { font-size: 14px; }
   border: 1px solid var(--border); color: var(--text-soft); background: var(--bg);
 }
 .pill-status { font-weight: 600; }
+.pill-model { color: #6b4fbb; border-color: #d5c8f0; background: #f3edfd; font-weight: 600; }
 .pill-FAIL { color: var(--fail); border-color: #f0c0c4; background: #ffeef0; }
 .pill-WARNING { color: var(--warn); border-color: #e8d7a8; background: #fff8e6; }
 .pill-PASS { color: var(--pass); border-color: #a7d5b0; background: #eaf6ec; }

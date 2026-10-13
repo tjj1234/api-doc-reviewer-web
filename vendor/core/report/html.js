@@ -94,8 +94,13 @@ function findingCard(f, L) {
   const color = STATUS_COLOR[f.status] || '#6e7781';
   const before = f.before ? `<pre>${esc(f.before)}</pre>` : '';
   const after = f.after ? `<p>改为：</p><pre>${esc(f.after)}</pre>` : '';
+  const srcBadge = f.source === 'model'
+    ? ' <span class="badge" style="background:#6b4fbb" title="规则引擎无法静态判定，由模型基于文档内容补出">模型补判</span>'
+    : f.source === 'manual'
+      ? ' <span class="badge" style="background:#1a7f37" title="规则引擎无法静态判定，由 agent 人工复核文档原文定论">人工复核</span>'
+      : '';
   return `<div class="card">
-    <h4><span class="badge" style="background:${color}">${esc(L(f.status))}</span>${esc(f.title)} <code>${esc(f.rule_id)}</code></h4>
+    <h4><span class="badge" style="background:${color}">${esc(L(f.status))}</span>${esc(f.title)} <code>${esc(f.rule_id)}</code>${srcBadge}</h4>
     <div class="meta">适用性：${esc(APPLICABILITY_LABEL[f.applicability] || f.applicability)} ｜ 严重度：${esc(SEVERITY_LABEL[f.severity] || f.severity)} ｜ 膜：${f.membrane === 'dynamic' ? '动态' : '静态'}</div>
     <div class="kv"><b>检查什么：</b>${esc(f.check)}</div>
     <div class="kv"><b>不符合的后果（agent 怎么踩）：</b>${esc(f.consequence)}</div>

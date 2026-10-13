@@ -95,12 +95,12 @@
   </section>
 
   <section class="card">
-    <h2>3 · 模型后端（可选）</h2>
+    <h2>3 · 模型后端（可选 · 用于补判语义项）</h2>
     <label class="check">
       <input type="checkbox" id="model-enable">
-      <span>启用模型辅助语义判断（散文文档、修复文案生成时需要）</span>
+      <span>启用模型补判：把规则引擎静态判不了的语义项（前置条件 / 租户隔离 / changelog 等）交给模型基于文档内容判定</span>
     </label>
-    <p class="hint">不启用也能跑：规则引擎是零模型的确定性检查，缺少模型时相关项会诚实标记为「未测」，而不是假装通过。</p>
+    <p class="hint">不启用也能跑：规则引擎是零模型的确定性检查，缺少模型时相关项会诚实标记为「未测」，而不是假装通过。启用后未测项由模型补判定论，finding 上会标「模型补判」徽标，来源可区分。</p>
     <div class="model-fields" id="model-fields" hidden>
       <div class="field">
         <label for="model-base">Base URL</label>

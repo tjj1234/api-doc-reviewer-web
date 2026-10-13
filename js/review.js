@@ -7,6 +7,7 @@ import { parseText, textMeta } from '../vendor/core/loaders/text.js';
 import { getMode } from '../vendor/core/modes.js';
 import { toMarkdown } from '../vendor/core/report/markdown.js';
 import { toHtml } from '../vendor/core/report/html.js';
+import { augmentWithModel, needsAugmentation } from './augment.js';
 
 // 网页版等价的 loadInput：把字符串归一化为 doc context
 export async function loadDoc(content, filename = '') {
@@ -29,25 +30,34 @@ export async function loadDoc(content, filename = '') {
   return { kind: 'text', doc: text, raw: trimmed, meta: textMeta(text) };
 }
 
-// 执行一次审查。modelCfg 为空则走零模型规则引擎（语义项落为 NOT_TESTED）
-export async function runReview({ content, filename = '', mode = 'A', model = null }) {
+// 执行一次审查。modelCfg 为空则走零模型规则引擎（语义项落为 NOT_TESTED）。
+// 配置了 modelCfg 时，规则引擎跑完后自动做 hosted 补判：把静态判不了的语义项
+// 连同文档证据交给模型判定，合并回报告并标注来源（模型补判 vs 规则判定）。
+export async function runReview({ content, filename = '', mode = 'A', model = null, onAugment } = {}) {
   const loaded = await loadDoc(content, filename);
   const modeMeta = getMode(mode);
+  const modelCfg = model && model.api_key
+    ? { base_url: model.base_url, api_key: model.api_key, model: model.model }
+    : null;
   const ctx = {
     kind: loaded.kind,
     doc: loaded.doc,
     meta: loaded.meta,
     mode,
     modeName: modeMeta.name,
-    model: model && model.api_key
-      ? { base_url: model.base_url, api_key: model.api_key, model: model.model }
-      : undefined,
+    model: modelCfg || undefined,
     // 网页版不支持动态膜：浏览器跨域策略会挡住对被测 API 的实测。
     // 这不是降级隐瞒 —— 覆盖声明会把相关项明确标为「未测」。
     dynamic: { enabled: false },
   };
   const report = await review(ctx);
-  return { report, loaded };
+
+  // hosted 补判：仅当配置了模型、且确实存在静态判不了的语义项
+  const augmentResult = { augmented: [], failed: [] };
+  if (modelCfg && needsAugmentation(report).length) {
+    Object.assign(augmentResult, await augmentWithModel(report, loaded, modelCfg, onAugment));
+  }
+  return { report, loaded, augment: augmentResult };
 }
 
 // ============================================================================
